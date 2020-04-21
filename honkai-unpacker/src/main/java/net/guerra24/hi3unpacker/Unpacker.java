@@ -53,11 +53,20 @@ public class Unpacker {
 		File output = new File(OUTPUT_FOLDER);
 		output.mkdirs();
 		var executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-		File[] bundles = new File(INPUT_FOLDER).listFiles((pathname) -> {
-			return pathname.getName().endsWith(".wmv");
-		});
-		for (File file : bundles)
-			executor.submit(() -> processFile(file.getPath()));
+		{
+			File[] bundles = new File(INPUT_FOLDER).listFiles((pathname) -> {
+				return pathname.getName().endsWith(".wmv");
+			});
+			for (File file : bundles)
+				executor.submit(() -> processFile(file.getPath()));
+		}
+		{
+			File[] u3ds = new File(INPUT_FOLDER).listFiles((pathname) -> {
+				return pathname.getName().endsWith(".unity3d");
+			});
+			for (File file : u3ds)
+				executor.submit(() -> processFile3D(file.getPath()));
+		}
 		executor.shutdown();
 		try {
 			executor.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
@@ -143,6 +152,55 @@ public class Unpacker {
 			}
 			for (var buf : outputFiles)
 				memFree(buf);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	private static void processFile3D(String bundle) {
+		try {
+			System.out.println(bundle);
+			var file = Utils.ioResourceToByteBuffer(bundle, 1024);
+			int start = 0, end = file.remaining();
+
+			int fileStart = start, fileEnd = end;
+			byte[] version = new byte[18];
+			for (int i = 0; i < 18; i++)
+				version[i] = file.get(fileStart + i + 12);
+			boolean valid = Arrays.equals(version, VERSION);
+			long size = fileEnd - fileStart;
+			if (!valid)
+				fileStart += 50;
+			byte[] out = new byte[fileEnd - fileStart];
+			for (int i = 0; i < fileEnd - fileStart; i++)
+				out[i] = file.get(fileStart + i);
+			ByteBuffer buff = memAlloc(fileEnd - fileStart + (!valid ? 50 : 0));
+			if (!valid) {
+				int ciBlock = 0;
+				for (int i = 4; i < out.length; i++) {
+					if (Byte.compareUnsigned(out[i], (byte) 240) == 0
+							&& Byte.compareUnsigned(out[i + 1], (byte) 1) == 0) {
+						ciBlock = i;
+						break;
+					}
+				}
+				buff.put(HEADER);
+				buff.put(hexStringToByteArray(String.format("%016X", size)));
+				buff.put(hexStringToByteArray(String.format("%08X", ciBlock)));
+				buff.put(UI_BLOCK);
+				buff.put(FLAGS);
+			}
+			buff.put(out);
+			buff.flip();
+			memFree(file);
+			File f = new File(OUTPUT_FOLDER + File.separator
+					+ bundle.substring(bundle.lastIndexOf(File.separator), bundle.lastIndexOf(".")) + ".unity3d");
+			try (var channel = new FileOutputStream(f).getChannel()) {
+				channel.write(buff);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			memFree(buff);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
