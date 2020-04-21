@@ -1,8 +1,10 @@
 package net.guerra24.hi3unpacker;
 
-import static org.lwjgl.system.MemoryUtil.*;
-import static org.lwjgl.system.MemoryStack.*;
+import static org.lwjgl.system.MemoryUtil.memAlloc;
 import static org.lwjgl.system.MemoryUtil.memFree;
+import static org.lwjgl.util.nfd.NativeFileDialog.NFD_OKAY;
+import static org.lwjgl.util.nfd.NativeFileDialog.NFD_PickFolder;
+import static org.lwjgl.util.tinyfd.TinyFileDialogs.tinyfd_messageBox;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -16,9 +18,6 @@ import java.util.concurrent.TimeUnit;
 
 import org.lwjgl.system.MemoryStack;
 
-import static org.lwjgl.util.nfd.NativeFileDialog.*;
-import static org.lwjgl.util.tinyfd.TinyFileDialogs.*;
-
 public class Unpacker {
 
 	private static final byte[] HEADER = hexStringToByteArray(
@@ -28,7 +27,7 @@ public class Unpacker {
 			"35 2E 78 2E 78 00 32 30 31 37 2E 34 2E 31 38 66 31 00".replace(" ", ""));
 
 	private static final byte[] CI_BLOCK = hexStringToByteArray("FF FF FF FF".replace(" ", ""));
-	private static final byte[] UI_BLOCK = hexStringToByteArray("FF FF FF FF".replace(" ", ""));
+	private static final byte[] UI_BLOCK = hexStringToByteArray("00 00 10 00".replace(" ", ""));
 	private static final byte[] FLAGS = hexStringToByteArray("00 00 00 43".replace(" ", ""));
 
 	private static String OUTPUT_FOLDER = "", INPUT_FOLDER = "";
@@ -104,9 +103,17 @@ public class Unpacker {
 								out[i] = file.get(fileStart + i);
 							ByteBuffer buff = memAlloc(fileEnd - fileStart + (!valid ? 50 : 0));
 							if (!valid) {
+								int ciBlock = 0;
+								for (int i = 4; i < out.length; i++) {
+									if (Byte.compareUnsigned(out[i], (byte) 240) == 0
+											&& Byte.compareUnsigned(out[i + 1], (byte) 1) == 0) {
+										ciBlock = i;
+										break;
+									}
+								}
 								buff.put(HEADER);
 								buff.put(hexStringToByteArray(String.format("%016X", size)));
-								buff.put(CI_BLOCK);
+								buff.put(hexStringToByteArray(String.format("%08X", ciBlock)));
 								buff.put(UI_BLOCK);
 								buff.put(FLAGS);
 							}
