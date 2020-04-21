@@ -22,11 +22,15 @@ import static org.lwjgl.util.tinyfd.TinyFileDialogs.*;
 public class Unpacker {
 
 	private static final byte[] HEADER = hexStringToByteArray(
-			"55 6E 69 74 79 46 53 00 00 00 00 06 35 2E 78 2E 78 00 32 30 31 37 2E 34 2E 31 38 66 31 00 00 00 00 00 00"
-					.replace(" ", ""));
+			"55 6E 69 74 79 46 53 00 00 00 00 06 35 2E 78 2E 78 00 32 30 31 37 2E 34 2E 31 38 66 31 00".replace(" ",
+					""));
 	private static final byte[] VERSION = hexStringToByteArray(
 			"35 2E 78 2E 78 00 32 30 31 37 2E 34 2E 31 38 66 31 00".replace(" ", ""));
-	
+
+	private static final byte[] CI_BLOCK = hexStringToByteArray("FF FF FF FF".replace(" ", ""));
+	private static final byte[] UI_BLOCK = hexStringToByteArray("FF FF FF FF".replace(" ", ""));
+	private static final byte[] FLAGS = hexStringToByteArray("00 00 00 43".replace(" ", ""));
+
 	private static String OUTPUT_FOLDER = "", INPUT_FOLDER = "";
 
 	public static void main(String[] args) {
@@ -66,67 +70,73 @@ public class Unpacker {
 
 	private static void processFile(String bundle) {
 		try {
-		List<ByteBuffer> outputFiles = new ArrayList<>();
-		System.out.println(bundle);
+			List<ByteBuffer> outputFiles = new ArrayList<>();
+			System.out.println(bundle);
 
-		try {
-			var file = Utils.ioResourceToByteBuffer(bundle, 1024);
-			int start = 0, end = 0;
-			String format = "";
-			while (file.hasRemaining()) {
-				for (int i = 0; i < 7; i++) {
-					format += new String(new byte[] { file.get() });
-					if (!"UnityFS".startsWith(format)) {
-						format = "";
-						break;
-					}
-				}
-				if (format.equals("UnityFS") || !file.hasRemaining()) {
-					if (end != 0)
-						start = end;
-					end = file.position() - 7;
-					format = "";
-					if (end > 0) {
-						int fileStart = start, fileEnd = end;
-						byte[] version = new byte[18];
-						for (int i = 0; i < 18; i++)
-							version[i] = file.get(fileStart + i + 12);
-						boolean valid = Arrays.equals(version, VERSION);
-						if (!valid) {
-							continue;
+			try {
+				var file = Utils.ioResourceToByteBuffer(bundle, 1024);
+				int start = 0, end = 0;
+				String format = "";
+				while (file.hasRemaining()) {
+					for (int i = 0; i < 7; i++) {
+						format += new String(new byte[] { file.get() });
+						if (!"UnityFS".startsWith(format)) {
+							format = "";
+							break;
 						}
-						byte[] out = new byte[fileEnd - fileStart];
-						for (int i = 0; i < fileEnd - fileStart; i++)
-							out[i] = file.get(fileStart + i);
-						ByteBuffer buff = memAlloc(fileEnd - fileStart);
-						//if (!valid)
-							//buff.put(HEADER);
-						buff.put(out);
-						buff.flip();
-						outputFiles.add(buff);
+					}
+					if (format.equals("UnityFS") || !file.hasRemaining()) {
+						if (end != 0)
+							start = end;
+						end = file.position() - 7;
+						format = "";
+						if (end > 0) {
+							int fileStart = start, fileEnd = end;
+							byte[] version = new byte[18];
+							for (int i = 0; i < 18; i++)
+								version[i] = file.get(fileStart + i + 12);
+							boolean valid = Arrays.equals(version, VERSION);
+							long size = fileEnd - fileStart;
+							if (!valid)
+								fileStart += 50;
+							byte[] out = new byte[fileEnd - fileStart];
+							for (int i = 0; i < fileEnd - fileStart; i++)
+								out[i] = file.get(fileStart + i);
+							ByteBuffer buff = memAlloc(fileEnd - fileStart + (!valid ? 50 : 0));
+							if (!valid) {
+								buff.put(HEADER);
+								buff.put(hexStringToByteArray(String.format("%016X", size)));
+								buff.put(CI_BLOCK);
+								buff.put(UI_BLOCK);
+								buff.put(FLAGS);
+							}
+							buff.put(out);
+							buff.flip();
+							outputFiles.add(buff);
+						}
 					}
 				}
-			}
-			memFree(file);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		String directory = OUTPUT_FOLDER + bundle.substring(bundle.lastIndexOf(File.separator), bundle.lastIndexOf("."));
-		File outDir = new File(directory);
-		if (!outputFiles.isEmpty())
-			outDir.mkdir();
-		for (int i = 0; i < outputFiles.size(); i++) {
-			var buf = outputFiles.get(i);
-			File file = new File(directory + File.separator + i + ".unity3d");
-			try (var channel = new FileOutputStream(file).getChannel()) {
-				channel.write(buf);
+				memFree(file);
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
-		}
-		for (var buf : outputFiles)
-			memFree(buf);
-		}catch(Exception e) {
+			String directory = OUTPUT_FOLDER
+					+ bundle.substring(bundle.lastIndexOf(File.separator), bundle.lastIndexOf("."));
+			File outDir = new File(directory);
+			if (!outputFiles.isEmpty())
+				outDir.mkdir();
+			for (int i = 0; i < outputFiles.size(); i++) {
+				var buf = outputFiles.get(i);
+				File file = new File(directory + File.separator + i + ".unity3d");
+				try (var channel = new FileOutputStream(file).getChannel()) {
+					channel.write(buf);
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+			for (var buf : outputFiles)
+				memFree(buf);
+		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
