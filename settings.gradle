@@ -1,1 +1,2 @@
-rootProject.name = 'honkai-unpacker'
+rootProject.name = 'honkai-tools'
+include 'honkai-unpacker', 'honkai-generator'

@@ -1,6 +1,7 @@
 package net.guerra24.hi3unpacker;
 
-import static org.lwjgl.system.MemoryUtil.memAlloc;
+import static org.lwjgl.system.MemoryUtil.*;
+import static org.lwjgl.system.MemoryStack.*;
 import static org.lwjgl.system.MemoryUtil.memFree;
 
 import java.io.File;
@@ -8,21 +9,48 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+
+import org.lwjgl.system.MemoryStack;
+
+import static org.lwjgl.util.nfd.NativeFileDialog.*;
+import static org.lwjgl.util.tinyfd.TinyFileDialogs.*;
 
 public class Unpacker {
 
 	private static final byte[] HEADER = hexStringToByteArray(
 			"55 6E 69 74 79 46 53 00 00 00 00 06 35 2E 78 2E 78 00 32 30 31 37 2E 34 2E 31 38 66 31 00 00 00 00 00 00"
 					.replace(" ", ""));
+	private static final byte[] VERSION = hexStringToByteArray(
+			"35 2E 78 2E 78 00 32 30 31 37 2E 34 2E 31 38 66 31 00".replace(" ", ""));
+	
+	private static String OUTPUT_FOLDER = "", INPUT_FOLDER = "";
 
 	public static void main(String[] args) {
-		File output = new File("./output");
+		try (var stack = MemoryStack.stackPush()) {
+			var inPath = stack.mallocPointer(1);
+			var outPath = stack.mallocPointer(1);
+			tinyfd_messageBox("Unpacker", "Select input directory", "ok", "info", false);
+			int resultIn = NFD_PickFolder((ByteBuffer) null, inPath);
+			tinyfd_messageBox("Unpacker", "Select output directory", "ok", "info", false);
+			int resultOut = NFD_PickFolder((ByteBuffer) null, outPath);
+			if (resultIn == NFD_OKAY)
+				INPUT_FOLDER = inPath.getStringUTF8();
+			if (resultOut == NFD_OKAY)
+				OUTPUT_FOLDER = outPath.getStringUTF8();
+		}
+		if (OUTPUT_FOLDER.isBlank() || INPUT_FOLDER.isEmpty()) {
+			tinyfd_messageBox("Unpacker", "No input or output directory selected", "ok", "error", false);
+			return;
+		}
+
+		File output = new File(OUTPUT_FOLDER);
 		output.mkdirs();
-		var executor = Executors.newFixedThreadPool(2);
-		File[] bundles = new File("./input").listFiles((pathname) -> {
+		var executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+		File[] bundles = new File(INPUT_FOLDER).listFiles((pathname) -> {
 			return pathname.getName().endsWith(".wmv");
 		});
 		for (File file : bundles)
@@ -33,9 +61,11 @@ public class Unpacker {
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
+		tinyfd_messageBox("Unpacker", "Unpacking completed", "ok", "info", false);
 	}
 
 	private static void processFile(String bundle) {
+		try {
 		List<ByteBuffer> outputFiles = new ArrayList<>();
 		System.out.println(bundle);
 
@@ -58,17 +88,19 @@ public class Unpacker {
 					format = "";
 					if (end > 0) {
 						int fileStart = start, fileEnd = end;
-						boolean valid = file.get(fileStart + 6) == 83 && file.get(fileStart + 11) == 6;
-						if (!valid)
+						byte[] version = new byte[18];
+						for (int i = 0; i < 18; i++)
+							version[i] = file.get(fileStart + i + 12);
+						boolean valid = Arrays.equals(version, VERSION);
+						if (!valid) {
 							continue;
-						if (!valid)
-							fileStart += 8;
+						}
 						byte[] out = new byte[fileEnd - fileStart];
 						for (int i = 0; i < fileEnd - fileStart; i++)
 							out[i] = file.get(fileStart + i);
-						ByteBuffer buff = memAlloc(fileEnd - fileStart + (!valid ? HEADER.length : 0));
-						if (!valid)
-							buff.put(HEADER);
+						ByteBuffer buff = memAlloc(fileEnd - fileStart);
+						//if (!valid)
+							//buff.put(HEADER);
 						buff.put(out);
 						buff.flip();
 						outputFiles.add(buff);
@@ -79,13 +111,13 @@ public class Unpacker {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-		String outPathDir = bundle.replace(".wmv", "/").replace("input", "output");
-		File outDir = new File(outPathDir);
+		String directory = OUTPUT_FOLDER + bundle.substring(bundle.lastIndexOf(File.separator), bundle.lastIndexOf("."));
+		File outDir = new File(directory);
 		if (!outputFiles.isEmpty())
 			outDir.mkdir();
 		for (int i = 0; i < outputFiles.size(); i++) {
 			var buf = outputFiles.get(i);
-			File file = new File(outPathDir + i + ".unity3d");
+			File file = new File(directory + File.separator + i + ".unity3d");
 			try (var channel = new FileOutputStream(file).getChannel()) {
 				channel.write(buf);
 			} catch (IOException e) {
@@ -94,6 +126,9 @@ public class Unpacker {
 		}
 		for (var buf : outputFiles)
 			memFree(buf);
+		}catch(Exception e) {
+			e.printStackTrace();
+		}
 	}
 
 	public static byte[] hexStringToByteArray(String s) {

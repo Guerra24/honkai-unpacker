@@ -1,4 +1,5 @@
-Config/
+input/
+output/
 
 ### VisualStudioCode ###
 .vscode/*

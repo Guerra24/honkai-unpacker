@@ -1,0 +1,64 @@
+import org.gradle.internal.os.OperatingSystem
+
+plugins {
+	id "eclipse"
+	id "idea"
+	id "java"
+	id "java-library"
+	id "application"
+	id "com.palantir.graal" version "0.6.0-120-g853647c"
+}
+
+mainClassName = "net.guerra24.hi3unpacker.Unpacker"
+sourceCompatibility = "11"
+project.ext.lwjglVersion = "3.2.3"
+
+switch (OperatingSystem.current()) {
+	case OperatingSystem.LINUX:
+		def osArch = System.getProperty("os.arch")
+		project.ext.lwjglNatives = osArch.startsWith("arm") || osArch.startsWith("aarch64")
+			? "natives-linux-${osArch.contains("64") || osArch.startsWith("armv8") ? "arm64" : "arm32"}"
+			: "natives-linux"
+		break
+	case OperatingSystem.MAC_OS:
+		project.ext.lwjglNatives = "natives-macos"
+		break
+	case OperatingSystem.WINDOWS:
+		project.ext.lwjglNatives = System.getProperty("os.arch").contains("64") ? "natives-windows" : "natives-windows-x86"
+		break
+}
+
+graal {
+	mainClass "net.guerra24.hi3unpacker.Unpacker"
+}
+
+sourceSets {
+	main {
+		java.srcDir("${projectDir}/src/main/java/")
+		resources.srcDir("${projectDir}/src/main/resources/")
+	}
+
+	test {
+		java.srcDir("${projectDir}/src/test/java/")
+		resources.srcDir("${projectDir}/src/test/resources/")
+	}	
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+	implementation "com.google.code.gson:gson:2.8.6"
+
+	api "org.lwjgl:lwjgl"
+	api "org.lwjgl:lwjgl-jemalloc"
+	api "org.lwjgl:lwjgl-nfd"
+	api "org.lwjgl:lwjgl-tinyfd"
+
+	runtimeOnly "org.lwjgl:lwjgl::$lwjglNatives"
+	runtimeOnly "org.lwjgl:lwjgl-jemalloc::$lwjglNatives"
+	runtimeOnly "org.lwjgl:lwjgl-nfd::$lwjglNatives"
+	runtimeOnly "org.lwjgl:lwjgl-tinyfd::$lwjglNatives"
+}
