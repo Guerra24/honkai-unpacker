@@ -1,6 +1,6 @@
 package net.guerra24.hi3unpacker;
 
-import static org.lwjgl.system.MemoryUtil.memAlloc;
+import static org.lwjgl.system.MemoryUtil.*;
 import static org.lwjgl.system.MemoryUtil.memFree;
 import static org.lwjgl.util.nfd.NativeFileDialog.NFD_OKAY;
 import static org.lwjgl.util.nfd.NativeFileDialog.NFD_PickFolder;
@@ -82,7 +82,7 @@ public class Unpacker {
 			System.out.println(bundle);
 
 			try {
-				var file = Utils.ioResourceToByteBuffer(bundle, 1024);
+				var file = Utils.ioResourceToByteBuffer(bundle, 1024 * 1024);
 				int start = 0, end = 0;
 				String format = "";
 				while (file.hasRemaining()) {
@@ -101,21 +101,81 @@ public class Unpacker {
 						if (end > 0) {
 							int fileStart = start, fileEnd = end;
 							byte[] version = new byte[18];
+							// Read version
 							for (int i = 0; i < 18; i++)
 								version[i] = file.get(fileStart + i + 12);
-							boolean valid = Arrays.equals(version, VERSION);
-							long size = fileEnd - fileStart;
-							if (!valid)
-								fileStart += 50;
+							boolean valid = Arrays.equals(version, VERSION); // Check if metadata has been obfuscated
+							long size = fileEnd - fileStart; // Calculate size
+							int metaOffset = 0;
+							if (!valid) {
+								// Search for 1E 00 01 00
+								for (int i = 0; i < 256; i++) {
+									byte a = file.get(fileStart + i);
+									byte b = file.get(fileStart + i + 1);
+									byte c = file.get(fileStart + i + 2);
+									byte d = file.get(fileStart + i + 3);
+									if (Byte.compareUnsigned(a, (byte) 30) == 0
+											&& Byte.compareUnsigned(b, (byte) 0) == 0
+											&& Byte.compareUnsigned(c, (byte) 1) == 0
+											&& Byte.compareUnsigned(d, (byte) 0) == 0) {
+										metaOffset = i;
+										break;
+									}
+								}
+								fileStart += metaOffset; // Move until metaOffset
+								size -= metaOffset - 50;
+							}
 							byte[] out = new byte[fileEnd - fileStart];
 							for (int i = 0; i < fileEnd - fileStart; i++)
-								out[i] = file.get(fileStart + i);
+								out[i] = file.get(fileStart + i); // Fill array for easy work
 							ByteBuffer buff = memAlloc(fileEnd - fileStart + (!valid ? 50 : 0));
 							if (!valid) {
+
+								// Search for CAB header
+								int cabStart = 0;
+								for (int i = 4; i < out.length; i++)
+									if (Byte.compareUnsigned(out[i], (byte) 67) == 0
+											&& Byte.compareUnsigned(out[i + 1], (byte) 65) == 0
+											&& Byte.compareUnsigned(out[i + 2], (byte) 66) == 0) {
+										cabStart = i;
+										break;
+									}
+								// Search null terminator
+								int cabEnd = 4;
+								for (int i = cabStart; i < out.length; i++)
+									if (Byte.compareUnsigned(out[i], (byte) 0) == 0) {
+										cabEnd = i;
+										break;
+									}
+								{
+									// Check if there is garbage data in the filename
+									// Go until 60, all data inside is garbage
+									/*
+									 * int cabGarbageEnd = 0; for (int i = cabEnd; i < out.length; i++) if
+									 * (Byte.compareUnsigned(out[i], (byte) 96) == 0) { // Found garbage end
+									 * cabGarbageEnd = i + 1; break; } else if (Byte.compareUnsigned(out[i], (byte)
+									 * 240) == 0 && Byte.compareUnsigned(out[i + 1], (byte) 1) == 0) { // Found
+									 * metadata marker cabGarbageEnd = -1; break; } //
+									 * System.out.println(cabGarbageEnd); // remove garbage if (cabGarbageEnd > 0) {
+									 * for (int i = cabEnd; i < cabGarbageEnd; i++) out = ArrayUtils.remove(out,
+									 * cabEnd); size -= cabGarbageEnd - cabEnd; }
+									 */
+								}
+								{
+									// Check if there is garbage data after filename
+								}
+								/*
+								 * int status = 0; for (int i = 4; i < out.length; i++) { if
+								 * (Byte.compareUnsigned(out[i], (byte) 0) == 0 && Byte.compareUnsigned(out[i +
+								 * 1], (byte) 109) == 0 && Byte.compareUnsigned(out[i + 2], (byte) 114) == 0 &&
+								 * Byte.compareUnsigned(out[i + 3], (byte) 48) == 0 &&
+								 * Byte.compareUnsigned(out[i + 4], (byte) 107) == 0) { status = 1; break; } }
+								 * switch (status) { case 0: // Fine break; case 1: // Found garbage mark break;
+								 * }
+								 */
 								int ciBlock = 0;
-								for (int i = 4; i < out.length; i++) {
-									if (Byte.compareUnsigned(out[i], (byte) 240) == 0
-											&& Byte.compareUnsigned(out[i + 1], (byte) 1) == 0) {
+								for (int i = cabEnd; i < out.length; i++) {
+									if (Byte.compareUnsigned(out[i], (byte) 240) == 0) {
 										ciBlock = i;
 										break;
 									}
@@ -160,7 +220,7 @@ public class Unpacker {
 	private static void processFile3D(String bundle) {
 		try {
 			System.out.println(bundle);
-			var file = Utils.ioResourceToByteBuffer(bundle, 1024);
+			var file = Utils.ioResourceToByteBuffer(bundle, 1024 * 1024);
 			int start = 0, end = file.remaining();
 
 			int fileStart = start, fileEnd = end;
